@@ -1,6 +1,6 @@
 import path from "path";
 
-import { EventNames, EventPayloads, WebhookEvent } from "@octokit/webhooks";
+import { EmitterWebhookEvent as WebhookEvent } from "@octokit/webhooks";
 import merge from "deepmerge";
 
 import type { Logger } from "pino";
@@ -8,34 +8,9 @@ import type { Logger } from "pino";
 import { ProbotOctokit } from "./octokit/probot-octokit";
 import { aliasLog } from "./helpers/alias-log";
 import { DeprecatedLogger } from "./types";
+import { EmitterWebhookEventName as WebhookEvents } from "@octokit/webhooks/dist-types/types";
 
 export type MergeOptions = merge.Options;
-
-export interface WebhookPayloadWithRepository {
-  [key: string]: any;
-  repository?: EventPayloads.PayloadRepository;
-  issue?: {
-    [key: string]: any;
-    number: number;
-    html_url?: string;
-    body?: string;
-  };
-  pull_request?: {
-    [key: string]: any;
-    number: number;
-    html_url?: string;
-    body?: string;
-  };
-  sender?: {
-    [key: string]: any;
-    type: string;
-  };
-  action?: string;
-  installation?: {
-    id: number;
-    [key: string]: any;
-  };
-}
 
 /**
  * The context of the event that was triggered, including the payload and
@@ -49,35 +24,29 @@ export interface WebhookPayloadWithRepository {
  *  };
  *  ```
  *
- * @property {github} github - A GitHub API client
+ * @property {octokit} octokit - An Octokit instance
  * @property {payload} payload - The webhook event payload
- * @property {logger} log - A logger
+ * @property {log} log - A pino instance
  */
-export class Context<E extends WebhookPayloadWithRepository = any>
-  implements WebhookEvent<E> {
-  public name: EventNames.StringNames;
+export class Context<E extends WebhookEvents = WebhookEvents> {
+  public name: WebhookEvents;
   public id: string;
-  public payload: E;
+  public payload: WebhookEvent<E>["payload"];
 
-  public github: InstanceType<typeof ProbotOctokit>;
+  public octokit: InstanceType<typeof ProbotOctokit>;
   public log: DeprecatedLogger;
 
   constructor(
     event: WebhookEvent<E>,
-    github: InstanceType<typeof ProbotOctokit>,
+    octokit: InstanceType<typeof ProbotOctokit>,
     log: Logger
   ) {
     this.name = event.name;
     this.id = event.id;
     this.payload = event.payload;
 
-    this.github = github;
+    this.octokit = octokit;
     this.log = aliasLog(log);
-  }
-
-  // Maintain backward compatibility
-  public get event(): string {
-    return this.name;
   }
 
   /**
@@ -93,6 +62,7 @@ export class Context<E extends WebhookPayloadWithRepository = any>
    *
    */
   public repo<T>(object?: T) {
+    // @ts-ignore `repository` is not always present in this.payload
     const repo = this.payload.repository;
 
     if (!repo) {
@@ -103,7 +73,7 @@ export class Context<E extends WebhookPayloadWithRepository = any>
 
     return Object.assign(
       {
-        owner: repo.owner.login || repo.owner.name!,
+        owner: repo.owner.login || repo.owner.name,
         repo: repo.name,
       },
       object
@@ -123,18 +93,20 @@ export class Context<E extends WebhookPayloadWithRepository = any>
    * @param object - Params to be merged with the issue params.
    */
   public issue<T>(object?: T) {
-    const payload = this.payload;
     return Object.assign(
       {
-        issue_number: (payload.issue || payload.pull_request || payload).number,
+        issue_number:
+          // @ts-ignore - this.payload may not have `issue` or `pull_request` keys
+          (this.payload.issue || this.payload.pull_request || this.payload)
+            .number,
       },
       this.repo(object)
     );
   }
 
   /**
-   * Return the `owner`, `repo`, and `issue_number` params for making API requests
-   * against an issue. The object passed in will be merged with the repo params.
+   * Return the `owner`, `repo`, and `pull_number` params for making API requests
+   * against a pull request. The object passed in will be merged with the repo params.
    *
    *
    * ```js
@@ -148,6 +120,7 @@ export class Context<E extends WebhookPayloadWithRepository = any>
     const payload = this.payload;
     return Object.assign(
       {
+        // @ts-ignore - this.payload may not have `issue` or `pull_request` keys
         pull_number: (payload.issue || payload.pull_request || payload).number,
       },
       this.repo(object)
@@ -159,7 +132,9 @@ export class Context<E extends WebhookPayloadWithRepository = any>
    * @type {boolean}
    */
   get isBot() {
-    return this.payload.sender!.type === "Bot";
+    // @ts-expect-error - `sender` key is currently not present in all events
+    // see https://github.com/octokit/webhooks/issues/510
+    return this.payload.sender.type === "Bot";
   }
 
   /**
@@ -180,8 +155,8 @@ export class Context<E extends WebhookPayloadWithRepository = any>
    * const config = await context.config('config.yml')
    *
    * if (config.close) {
-   *   context.github.issues.comment(context.issue({body: config.comment}))
-   *   context.github.issues.edit(context.issue({state: 'closed'}))
+   *   context.octokit.issues.comment(context.issue({body: config.comment}))
+   *   context.octokit.issues.edit(context.issue({state: 'closed'}))
    * }
    * ```
    *
@@ -192,8 +167,8 @@ export class Context<E extends WebhookPayloadWithRepository = any>
    * const config = await context.config('config.yml', {comment: 'Make sure to check all the specs.'})
    *
    * if (config.close) {
-   *   context.github.issues.comment(context.issue({body: config.comment}));
-   *   context.github.issues.edit(context.issue({state: 'closed'}))
+   *   context.octokit.issues.comment(context.issue({body: config.comment}));
+   *   context.octokit.issues.edit(context.issue({state: 'closed'}))
    * }
    * ```
    *
@@ -204,7 +179,7 @@ export class Context<E extends WebhookPayloadWithRepository = any>
    * changes made in pull requests from different branches or forks are ignored.
    *
    * If you need more lower-level control over reading and merging configuration files,
-   * you can `context.github.config.get(options)`, see https://github.com/probot/octokit-plugin-config.
+   * you can `context.octokit.config.get(options)`, see https://github.com/probot/octokit-plugin-config.
    *
    * @param fileName - Name of the YAML file in the `.github` directory
    * @param defaultConfig - An object of default config options
@@ -229,7 +204,7 @@ export class Context<E extends WebhookPayloadWithRepository = any>
     });
 
     // @ts-ignore
-    const { config, files } = await this.github.config.get(params);
+    const { config, files } = await this.octokit.config.get(params);
 
     // if no default config is set, and no config files are found, return null
     if (!defaultConfig && !files.find((file: any) => file.config !== null)) {

@@ -1,4 +1,3 @@
-import { createAppAuth } from "@octokit/auth-app";
 import LRUCache from "lru-cache";
 import { ProbotOctokit } from "./probot-octokit";
 import Redis from "ioredis";
@@ -14,8 +13,8 @@ type Options = {
   githubToken?: string;
   appId?: number;
   privateKey?: string;
-  redisConfig?: Redis.RedisOptions;
-  throttleOptions?: any;
+  redisConfig?: Redis.RedisOptions | string;
+  baseUrl?: string;
 };
 
 /**
@@ -30,14 +29,13 @@ type Options = {
  */
 export function getProbotOctokitWithDefaults(options: Options) {
   const authOptions = options.githubToken
-    ? { auth: options.githubToken }
+    ? {
+        token: options.githubToken,
+      }
     : {
-        auth: {
-          cache: options.cache,
-          id: options.appId,
-          privateKey: options.privateKey,
-        },
-        authStrategy: createAppAuth,
+        cache: options.cache,
+        appId: options.appId,
+        privateKey: options.privateKey,
       };
 
   const octokitThrottleOptions = getOctokitThrottleOptions({
@@ -45,19 +43,16 @@ export function getProbotOctokitWithDefaults(options: Options) {
     redisConfig: options.redisConfig,
   });
 
-  const defaultOptions: any = {
-    baseUrl:
-      process.env.GHE_HOST &&
-      `${process.env.GHE_PROTOCOL || "https"}://${process.env.GHE_HOST}/api/v3`,
-    ...authOptions,
+  let defaultOptions: any = {
+    auth: authOptions,
   };
 
-  if (options.throttleOptions || octokitThrottleOptions) {
-    defaultOptions.throttle = Object.assign(
-      {},
-      options.throttleOptions,
-      octokitThrottleOptions
-    );
+  if (options.baseUrl) {
+    defaultOptions.baseUrl = options.baseUrl;
+  }
+
+  if (octokitThrottleOptions) {
+    defaultOptions.throttle = octokitThrottleOptions;
   }
 
   return options.Octokit.defaults((instanceOptions: any) => {

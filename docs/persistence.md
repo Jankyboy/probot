@@ -1,10 +1,24 @@
 ---
 next: docs/best-practices.md
+title: Persistence
 ---
 
 # Persistence
 
 Generally speaking, adding database storage or persistence to your Probot App will greatly complicate your life. It's perfectly doable, but for most use-cases you'll be able to manage relevant data within GitHub issues, pull requests and your app's configuration file.
+
+**Contents:**
+
+<!-- toc -->
+
+- [Using GitHub for persistent data](#using-github-for-persistent-data)
+- [Using a Database](#using-a-database)
+  - [MongoDB (with Mongoose)](#mongodb-with-mongoose)
+  - [MySQL](#mysql)
+  - [Postgres](#postgres)
+  - [Firebase](#firebase)
+
+<!-- tocstop -->
 
 ## Using GitHub for persistent data
 
@@ -80,7 +94,7 @@ module.exports = (app) => {
     });
 
     // Post a comment on the issue
-    return context.github.issues.createComment(params);
+    return context.octokit.issues.createComment(params);
   });
 };
 ```
@@ -121,7 +135,7 @@ module.exports = (app) => {
     });
 
     // Post a comment on the issue
-    return context.github.issues.createComment(params);
+    return context.octokit.issues.createComment(params);
   });
 };
 ```
@@ -162,7 +176,7 @@ module.exports = (app) => {
     });
 
     // Post a comment on the issue
-    return context.github.issues.createComment(params);
+    return context.octokit.issues.createComment(params);
   });
 };
 ```
@@ -210,7 +224,7 @@ module.exports = (app) => {
     });
 
     // Post a comment on the issue
-    return context.github.issues.createComment(params);
+    return context.octokit.issues.createComment(params);
   });
 };
 ```
